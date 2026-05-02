@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Connect — Shared Profile</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #0D0A14;
+      color: #fff;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 48px 20px 60px;
+    }
+
+    .wordmark { font-size: 26px; font-weight: 800; letter-spacing: -1px; margin-bottom: 4px; }
+    .tagline  { font-size: 12px; color: #4B5563; margin-bottom: 40px; }
+
+    .card-container { width: 100%; max-width: 480px; }
+
+    h1 { font-size: 22px; font-weight: 800; letter-spacing: -0.5px; margin-bottom: 4px; text-align: center; }
+    .platform-count { font-size: 13px; color: #94A3B8; text-align: center; margin-bottom: 24px; }
+
+    .link-card {
+      background: #13131A;
+      border: 1px solid #1E1B2E;
+      border-radius: 20px;
+      padding: 16px;
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      text-decoration: none;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .link-card:hover { background: #1A1825; border-color: #7C3AED; }
+
+    .platform-dot { width: 12px; height: 12px; border-radius: 50%; margin-right: 14px; flex-shrink: 0; }
+    .link-info { flex: 1; }
+    .link-platform { font-size: 15px; font-weight: 700; color: #fff; }
+    .link-value { font-size: 13px; color: #94A3B8; margin-top: 2px; word-break: break-all; }
+    .link-arrow {
+      width: 32px; height: 32px; border-radius: 50%;
+      background: rgba(167,139,250,0.12);
+      border: 1px solid #7C3AED;
+      display: flex; align-items: center; justify-content: center;
+      color: #A78BFA; font-weight: 700; font-size: 14px; flex-shrink: 0;
+    }
+
+    /* Loading spinner */
+    .spinner-wrap { display: flex; flex-direction: column; align-items: center; margin-top: 80px; }
+    .spinner {
+      width: 36px; height: 36px;
+      border: 3px solid rgba(167,139,250,0.2);
+      border-top-color: #A78BFA;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin-bottom: 16px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinner-label { font-size: 13px; color: #94A3B8; }
+
+    /* Error / expired states */
+    .state-box { text-align: center; padding: 40px 20px; width: 100%; max-width: 480px; }
+    .state-icon {
+      width: 56px; height: 56px; border-radius: 50%;
+      background: rgba(239,68,68,0.10);
+      border: 1px solid #EF4444;
+      display: flex; align-items: center; justify-content: center;
+      margin: 0 auto 16px;
+      font-size: 24px; font-weight: 800; color: #EF4444;
+    }
+    .state-title { font-size: 20px; font-weight: 800; margin-bottom: 8px; }
+    .state-sub { font-size: 14px; color: #94A3B8; line-height: 1.5; }
+
+    .footer { margin-top: 32px; text-align: center; }
+    .footer-text { font-size: 12px; color: #4B5563; }
+  </style>
+</head>
+<body>
+  <div class="wordmark">connect</div>
+  <div class="tagline">tap to share socials</div>
+  <div id="root"></div>
+
+  <script>
+    // ── Supabase credentials (anon key — safe for client-side use, restricted by RLS) ──
+    var SUPABASE_URL     = 'https://ciyjgbaskprjtsttlved.supabase.co';
+    var SUPABASE_ANON_KEY = 'sb_publishable_tXJXNQsfqMD5dXkcDXCoZw_XftBGfjT';
+
+    var PLATFORM_CONFIGS = {
+      instagram: { label: 'Instagram',   color: '#E1306C' },
+      snapchat:  { label: 'Snapchat',    color: '#FFFC00' },
+      tiktok:    { label: 'TikTok',      color: '#69C9D0' },
+      youtube:   { label: 'YouTube',     color: '#FF0000' },
+      linkedin:  { label: 'LinkedIn',    color: '#0A66C2' },
+      x:         { label: 'X (Twitter)', color: '#ffffff' },
+      phone:     { label: 'Phone',       color: '#34C759' },
+      email:     { label: 'Email',       color: '#5856D6' }
+    };
+
+    // Fallback URL builder — used only when resolved_url is absent (old tokens)
+    var FALLBACK_PREFIXES = {
+      instagram: 'https://instagram.com/',
+      snapchat:  'https://snapchat.com/add/',
+      tiktok:    'https://tiktok.com/@',
+      youtube:   'https://youtube.com/@',
+      linkedin:  'https://linkedin.com/in/',
+      x:         'https://x.com/',
+      phone:     'tel:',
+      email:     'mailto:'
+    };
+
+    function esc(s) {
+      return String(s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    function showSpinner() {
+      document.getElementById('root').innerHTML =
+        '<div class="spinner-wrap"><div class="spinner"></div><div class="spinner-label">Loading profile…</div></div>';
+    }
+
+    function showError(title, sub) {
+      document.getElementById('root').innerHTML =
+        '<div class="state-box">' +
+          '<div class="state-icon">!</div>' +
+          '<div class="state-title">' + esc(title) + '</div>' +
+          '<div class="state-sub">' + esc(sub) + '</div>' +
+        '</div>';
+    }
+
+    function getLinkUrl(link) {
+      if (link.resolved_url) return link.resolved_url;
+      var prefix = FALLBACK_PREFIXES[link.platform] || '';
+      return prefix + link.value;
+    }
+
+    function renderLinks(socialLinks, displayName, username) {
+      var links = (socialLinks || []).filter(function(l) { return l.enabled; });
+      var sharerName = displayName || ('@' + username);
+
+      var html = '<div class="card-container">';
+      html += '<h1>' + esc(sharerName) + '\'s Links</h1>';
+      html += '<div class="platform-count">' +
+        links.length + ' platform' + (links.length !== 1 ? 's' : '') + ' shared with you' +
+      '</div>';
+
+      for (var i = 0; i < links.length; i++) {
+        var link = links[i];
+        var cfg  = PLATFORM_CONFIGS[link.platform] || { label: link.platform, color: '#888' };
+        var url  = getLinkUrl(link);
+        html +=
+          '<a class="link-card" href="' + esc(url) + '">' +
+            '<div class="platform-dot" style="background:' + cfg.color + '"></div>' +
+            '<div class="link-info">' +
+              '<div class="link-platform">' + esc(cfg.label) + '</div>' +
+              '<div class="link-value">' + esc(link.value) + '</div>' +
+            '</div>' +
+            '<div class="link-arrow">&#x2192;</div>' +
+          '</a>';
+      }
+
+      html += '<div class="footer"><span class="footer-text">Shared via Connect</span></div>';
+      html += '</div>';
+      document.getElementById('root').innerHTML = html;
+    }
+
+    // ── Main ─────────────────────────────────────────────────────────────────────
+
+    async function main() {
+      showSpinner();
+
+      var match = window.location.search.match(/[?&]token=([^&]+)/);
+      if (!match) { showError('Invalid Link', 'No share token found in this URL.'); return; }
+      var token = decodeURIComponent(match[1]);
+
+      var headers = {
+        'apikey':        SUPABASE_ANON_KEY,
+        'Authorization': 'Bearer ' + SUPABASE_ANON_KEY,
+        'Content-Type':  'application/json'
+      };
+
+      // ── Step 1: validate the token (RLS rejects expired tokens server-side) ──
+      var tokenRes;
+      try {
+        tokenRes = await fetch(
+          SUPABASE_URL + '/rest/v1/share_tokens' +
+            '?token=eq.' + encodeURIComponent(token) +
+            '&select=user_id',
+          { headers: headers }
+        );
+      } catch (_) {
+        showError('Network Error', 'Could not reach the server. Check your connection and try again.');
+        return;
+      }
+
+      var tokens = await tokenRes.json();
+      if (!Array.isArray(tokens) || tokens.length === 0) {
+        showError('Link Expired', 'This share link has expired. Ask them to generate a new one using the Connect app.');
+        return;
+      }
+
+      var userId = tokens[0].user_id;
+
+      // ── Step 2: fetch the sharer's profile ────────────────────────────────────
+      var profileRes;
+      try {
+        profileRes = await fetch(
+          SUPABASE_URL + '/rest/v1/profiles' +
+            '?id=eq.' + encodeURIComponent(userId) +
+            '&select=display_name,username,social_links',
+          { headers: headers }
+        );
+      } catch (_) {
+        showError('Network Error', 'Could not load the profile. Try again.');
+        return;
+      }
+
+      var profiles = await profileRes.json();
+      if (!Array.isArray(profiles) || profiles.length === 0) {
+        showError('Profile Not Found', 'This user\'s profile could not be loaded.');
+        return;
+      }
+
+      var profile = profiles[0];
+      renderLinks(profile.social_links, profile.display_name, profile.username);
+    }
+
+    main();
+  </script>
+</body>
+</html>
