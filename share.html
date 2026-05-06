@@ -229,6 +229,14 @@
 
       var profile = profiles[0];
       renderLinks(profile.social_links, profile.display_name, profile.username);
+
+      // ── Step 3: record the view (fire-and-forget — never blocks the render) ──
+      // viewer_ip is intentionally omitted; browser JS cannot read the client IP.
+      fetch(SUPABASE_URL + '/rest/v1/connections', {
+        method: 'POST',
+        headers: Object.assign({}, headers, { 'Prefer': 'return=minimal' }),
+        body: JSON.stringify({ owner_id: userId, share_token: token })
+      }).catch(function() {});
     }
 
     main();
